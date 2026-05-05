@@ -19,9 +19,21 @@
 import { DeviceObservation, DeviceCategory } from '../ble/types';
 import { CATEGORY_WEIGHTS } from './weights';
 
+export type TierLevel = 'Quiet' | 'Light' | 'Moderate' | 'Heavy' | 'Saturated';
+
+function scoreTier(score: number): TierLevel {
+  if (score >= 80) return 'Quiet';
+  if (score >= 60) return 'Light';
+  if (score >= 40) return 'Moderate';
+  if (score >= 20) return 'Heavy';
+  return 'Saturated';
+}
+
 export interface ScoreBreakdown {
   /** 0–100, higher = more anonymous */
   score: number;
+  /** Categorical label for the score */
+  tier: TierLevel;
   /** Unbounded threat sum, useful for debugging */
   rawThreatLevel: number;
   /** Count of observations per category */
@@ -62,6 +74,7 @@ export function calculateScore(
 
   return {
     score,
+    tier: scoreTier(score),
     rawThreatLevel: threat,
     byCategory,
     observationCount: inRange.length,

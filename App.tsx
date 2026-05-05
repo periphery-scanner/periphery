@@ -12,12 +12,16 @@ import { startScanning } from './src/ble/scanner';
 import { calculateScore } from './src/score/calculator';
 import { useScanStore } from './src/store/scanStore';
 import { DeviceCategory } from './src/ble/types';
+import { TierDisplay } from './src/ui/TierDisplay';
+import { AsymmetricFlag } from './src/ui/AsymmetricFlag';
+import { DrillDownModal } from './src/ui/DrillDownModal';
+import { WearableDetailModal } from './src/ui/WearableDetailModal';
 
 const CATEGORY_LABELS: Record<DeviceCategory, string> = {
   phone: 'Phones',
   earbud: 'Earbuds',
   wearable_low: 'Wearables (watch/band)',
-  wearable_high: '⚠ Smart glasses / camera wearable',
+  wearable_high: 'Smart glasses / camera wearable',
   doorbell: 'Smart doorbells',
   home_camera: 'Home cameras',
   speaker_mic: 'Smart speakers',
@@ -43,6 +47,8 @@ export default function App() {
   const { observations, upsertObservation, purgeExpired } = useScanStore();
   const [permissionsGranted, setPermissionsGranted] = useState(false);
   const [permissionError, setPermissionError] = useState(false);
+  const [drillDownOpen, setDrillDownOpen] = useState(false);
+  const [wearableDetailOpen, setWearableDetailOpen] = useState(false);
 
   useEffect(() => {
     requestBlePermissions().then((granted) => {
@@ -67,26 +73,23 @@ export default function App() {
     return () => clearInterval(id);
   }, [purgeExpired]);
 
-  const { score, byCategory, observationCount, highAsymmetryFlag } =
-    calculateScore(observations);
+  const breakdown = calculateScore(observations);
+  const { tier, byCategory, observationCount, highAsymmetryFlag } = breakdown;
 
   const rows = Object.entries(byCategory) as [DeviceCategory, number][];
-
-  const scoreColor =
-    score >= 70 ? '#3fb950' : score >= 40 ? '#d29922' : '#f85149';
+  const wearableObservations = observations.filter(
+    (o) => o.category === 'wearable_high'
+  );
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
       <Text style={styles.title}>Periphery</Text>
 
-      <Text style={[styles.score, { color: scoreColor }]}>{score}</Text>
-      <Text style={styles.scoreLabel}>out of 100</Text>
+      <TierDisplay tier={tier} onPress={() => setDrillDownOpen(true)} />
 
       {highAsymmetryFlag && (
-        <Text style={styles.warning}>
-          ⚠ High-asymmetry device in range (smart glasses / camera wearable)
-        </Text>
+        <AsymmetricFlag onPress={() => setWearableDetailOpen(true)} />
       )}
 
       <Text style={styles.sectionHeader}>
@@ -111,6 +114,18 @@ export default function App() {
           )}
         />
       )}
+
+      <DrillDownModal
+        visible={drillDownOpen}
+        breakdown={breakdown}
+        onClose={() => setDrillDownOpen(false)}
+      />
+
+      <WearableDetailModal
+        visible={wearableDetailOpen}
+        observations={wearableObservations}
+        onClose={() => setWearableDetailOpen(false)}
+      />
     </View>
   );
 }
@@ -127,27 +142,8 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 4,
     letterSpacing: 1,
-  },
-  score: {
-    fontSize: 96,
-    fontWeight: '800',
-    textAlign: 'center',
-    lineHeight: 100,
-  },
-  scoreLabel: {
-    color: '#8b949e',
-    fontSize: 13,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  warning: {
-    color: '#f85149',
-    fontSize: 13,
-    textAlign: 'center',
-    marginBottom: 12,
-    paddingHorizontal: 8,
   },
   sectionHeader: {
     color: '#c9d1d9',
