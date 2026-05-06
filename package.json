@@ -10,6 +10,8 @@
     "generate-assets": "node scripts/generate-assets.mjs"
   },
   "dependencies": {
+    "@maplibre/maplibre-react-native": "^11.0.2",
+    "@types/geojson": "^7946.0.16",
     "expo": "~54.0.33",
     "expo-crypto": "~15.0.9",
     "expo-status-bar": "~3.0.9",

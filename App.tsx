@@ -3,6 +3,7 @@ import {
   FlatList,
   PermissionsAndroid,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   View,
@@ -16,6 +17,7 @@ import { TierDisplay } from './src/ui/TierDisplay';
 import { AsymmetricFlag } from './src/ui/AsymmetricFlag';
 import { DrillDownModal } from './src/ui/DrillDownModal';
 import { WearableDetailModal } from './src/ui/WearableDetailModal';
+import { MapScreen } from './src/map/MapScreen';
 
 const CATEGORY_LABELS: Record<DeviceCategory, string> = {
   phone: 'Phones',
@@ -49,6 +51,7 @@ export default function App() {
   const [permissionError, setPermissionError] = useState(false);
   const [drillDownOpen, setDrillDownOpen] = useState(false);
   const [wearableDetailOpen, setWearableDetailOpen] = useState(false);
+  const [showMap, setShowMap] = useState(false);
 
   useEffect(() => {
     requestBlePermissions().then((granted) => {
@@ -72,6 +75,11 @@ export default function App() {
     const id = setInterval(purgeExpired, 5_000);
     return () => clearInterval(id);
   }, [purgeExpired]);
+
+  // Map view replaces the main screen — BLE scanning continues in App hooks above.
+  if (showMap) {
+    return <MapScreen onBack={() => setShowMap(false)} />;
+  }
 
   const breakdown = calculateScore(observations);
   const { tier, byCategory, observationCount, highAsymmetryFlag } = breakdown;
@@ -126,6 +134,16 @@ export default function App() {
         observations={wearableObservations}
         onClose={() => setWearableDetailOpen(false)}
       />
+
+      {/* FAB — temporary entry point for map view. Phase 3c replaces with tab toggle. */}
+      <Pressable
+        style={({ pressed }) => [styles.fab, pressed && { opacity: 0.75 }]}
+        onPress={() => setShowMap(true)}
+        accessibilityLabel="Open radial map view"
+        accessibilityRole="button"
+      >
+        <Text style={styles.fabIcon}>◎</Text>
+      </Pressable>
     </View>
   );
 }
@@ -167,4 +185,20 @@ const styles = StyleSheet.create({
   },
   rowLabel: { color: '#c9d1d9', fontSize: 14, flex: 1, paddingRight: 8 },
   rowCount: { color: '#58a6ff', fontSize: 14, fontWeight: '700' },
+  fab: {
+    position: 'absolute',
+    bottom: 32,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#1A2040',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+  },
+  fabIcon: {
+    color: '#7CBFB0',
+    fontSize: 24,
+  },
 });
