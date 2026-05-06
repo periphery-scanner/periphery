@@ -7,7 +7,7 @@
  *  - Stop scanning when app is backgrounded (iOS forces this anyway)
  */
 
-import { BleManager, ScanMode, Device } from 'react-native-ble-plx';
+import { BleManager, BleError, ScanMode, Device } from 'react-native-ble-plx';
 import { classifyDevice, extractContinuityFingerprint } from './fingerprints';
 import { DeviceObservation } from './types';
 import { hashMacSync } from '../utils/hash';
@@ -16,6 +16,19 @@ import { rssiToDistance } from '../utils/distance';
 const manager = new BleManager();
 
 let isScanning = false;
+
+// Android 7+ silently throttles or kills SCAN_MODE_LOW_LATENCY BLE scans during
+// long sessions without calling the error callback — the stream just goes quiet.
+// A periodic stop/start resets the throttle window and keeps callbacks alive.
+//
+// 30 s chosen because:
+//   - Well under Android's "5 starts in 30 s" rate limit (we do 1 per 30 s)
+//   - Empirically preempts the throttle before it fires (~5–30 min in the wild)
+//   - Scan gap per restart is <100 ms, negligible against the 60 s expiry window
+//
+// Do not remove or lengthen significantly without first validating on-device over
+// a 20+ minute session. The throttle is silent — no error is reported when it fires.
+const SCAN_RESTART_INTERVAL_MS = 30_000;
 
 /**
  * Start scanning. Calls onObservation for every detected, classifiable device.
@@ -29,24 +42,40 @@ export function startScanning(
     console.warn('Scanner already running');
     return () => {};
   }
-  isScanning = true;
 
-  manager.startDeviceScan(
-    null,                                       // null filter = scan all
-    { scanMode: ScanMode.LowLatency, allowDuplicates: true },
-    (error, device) => {
-      if (error) {
-        console.error('BLE scan error:', error);
-        return;
-      }
-      if (!device || !device.manufacturerData) return;
-
-      const obs = parseAdvertisement(device);
-      if (obs) onObservation(obs);
+  // Extracted so the same closure is reused across restart cycles — avoids
+  // creating a new function object every 30 s.
+  const onScan = (_error: BleError | null, device: Device | null) => {
+    if (_error) {
+      console.error('BLE scan error:', _error);
+      return;
     }
-  );
+    if (!device || !device.manufacturerData) return;
+    const obs = parseAdvertisement(device);
+    if (obs) onObservation(obs);
+  };
 
-  return stopScanning;
+  const startScan = () => {
+    manager.startDeviceScan(
+      null,                                       // null filter = scan all
+      { scanMode: ScanMode.LowLatency, allowDuplicates: true },
+      onScan
+    );
+    isScanning = true;
+  };
+
+  startScan();
+
+  const restartId = setInterval(() => {
+    manager.stopDeviceScan();
+    isScanning = false;
+    startScan();
+  }, SCAN_RESTART_INTERVAL_MS);
+
+  return () => {
+    clearInterval(restartId);
+    stopScanning();
+  };
 }
 
 export function stopScanning() {
