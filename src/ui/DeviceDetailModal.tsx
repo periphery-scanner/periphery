@@ -41,7 +41,7 @@ const CATEGORY_COLORS: Record<DeviceCategory, string> = {
   phone:          '#7CBFB0',
   earbud:         '#7AAAC0',
   wearable_low:   '#C8B870',
-  wearable_high:  '#B86860',
+  wearable_high:  '#D97757',
   doorbell:       '#B86860',
   home_camera:    '#B86860',
   speaker_mic:    '#C8904A',
