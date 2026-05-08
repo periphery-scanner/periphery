@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeSyntheticEvent } from 'react-native';
 import {
   Camera,
@@ -28,8 +28,11 @@ import { OverlayBadge } from '../ui/OverlayBadge';
 import { CategoryLegend } from '../ui/CategoryLegend';
 import { DetailSurface } from '../ui/DetailSurface';
 import { DeviceDetailModal } from '../ui/DeviceDetailModal';
+import { RadiusSliderChip } from '../ui/RadiusSliderChip';
+import { RadiusPresetPopover } from '../ui/RadiusPresetPopover';
+import { RadiusFlashIndicator } from '../ui/RadiusFlashIndicator';
+import { useSettingsStore } from '../store/settingsStore';
 
-const SCAN_RADIUS_M = 30;
 const USER_POSITION_EMA_ALPHA = 0.25;
 
 const FADE_START_MS = 30_000;
@@ -76,6 +79,50 @@ export function MapScreen({ permissionsGranted }: Props) {
   // compares correctly. See git history for the Phase 3d crash this prevented.
   const observations = useScanStore((s) => s.observations);
   const scoreHistory = useScanStore((s) => s.scoreHistory);
+
+  // Settings — single-value selectors for the same reason above
+  const scanRadiusMeters = useSettingsStore((s) => s.scanRadiusMeters);
+  const distanceUnit = useSettingsStore((s) => s.distanceUnit);
+  const settingsHydrated = useSettingsStore((s) => s.hydrated);
+  const setScanRadiusMeters = useSettingsStore((s) => s.setScanRadiusMeters);
+
+  // ── Radius animation ──────────────────────────────────────────────────────
+  // displayRadiusM drives geoCircle and outside-radius opacity.
+  // During drag: setValue() for instant visual response.
+  // On preset select: Animated.timing() for 200ms easeOut.
+  const animRadiusRef = useRef(new Animated.Value(scanRadiusMeters));
+  const currentAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+  const [displayRadiusM, setDisplayRadiusM] = useState(scanRadiusMeters);
+
+  useEffect(() => {
+    const id = animRadiusRef.current.addListener(({ value }) => setDisplayRadiusM(value));
+    return () => animRadiusRef.current.removeListener(id);
+  }, []);
+
+  // ── Flash indicator + preset popover state ────────────────────────────────
+  // flashTrigger declared before the callbacks that call setFlashTrigger
+  const [flashTrigger, setFlashTrigger] = useState(0);
+  const [presetOpen, setPresetOpen] = useState(false);
+
+  const handleRadiusDrag = useCallback((v: number) => {
+    currentAnimRef.current?.stop();
+    animRadiusRef.current.setValue(v);
+    setScanRadiusMeters(v);
+    setFlashTrigger((n) => n + 1);
+  }, [setScanRadiusMeters]);
+
+  const handleRadiusPreset = useCallback((v: number) => {
+    currentAnimRef.current?.stop();
+    currentAnimRef.current = Animated.timing(animRadiusRef.current, {
+      toValue: v,
+      duration: 200,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: false,
+    });
+    currentAnimRef.current.start(() => { currentAnimRef.current = null; });
+    setScanRadiusMeters(v);
+    setFlashTrigger((n) => n + 1);
+  }, [setScanRadiusMeters]);
 
   // ── Location smoothing with quality filtering ─────────────────────────────
   // Location components must be gated on permissionsGranted because MapScreen
@@ -253,9 +300,15 @@ export function MapScreen({ permissionsGranted }: Props) {
       const color = isDesaturated
         ? DESATURATED_COLOR
         : (CATEGORY_COLORS[obs.category] ?? CATEGORY_COLORS.unknown);
+
+      // Devices outside the chosen radius render at ≤0.3 opacity (display-only;
+      // score and category counts reflect all detected devices regardless).
+      const outsideRadius = displayDist > displayRadiusM;
       const opacity = isDesaturated
         ? 0.25 * pulseProgress
-        : fadeOpacity * pulseProgress;
+        : outsideRadius
+          ? Math.min(fadeOpacity, 0.3) * pulseProgress
+          : fadeOpacity * pulseProgress;
 
       return {
         type: 'Feature',
@@ -272,7 +325,7 @@ export function MapScreen({ permissionsGranted }: Props) {
     });
 
     return { type: 'FeatureCollection', features };
-  }, [observations, smoothedPos, getDeviceBearing, desaturatedCategories, animTick]);
+  }, [observations, smoothedPos, getDeviceBearing, desaturatedCategories, displayRadiusM, animTick]);
 
   const handleDevicePress = useCallback(
     (e: NativeSyntheticEvent<PressEventWithFeatures>) => {
@@ -285,7 +338,7 @@ export function MapScreen({ permissionsGranted }: Props) {
   );
 
   const radiusFeature = smoothedPos
-    ? geoCircle(smoothedPos, SCAN_RADIUS_M)
+    ? geoCircle(smoothedPos, displayRadiusM)
     : null;
 
   // User dot GeoJSON — recomputed on animTick so staleness (>10s) is detected
@@ -411,6 +464,17 @@ export function MapScreen({ permissionsGranted }: Props) {
         </View>
       </View>
 
+      {/* Radius slider chip — top-right, below compass (top 108 = compass top 52 + height 40 + gap 16) */}
+      <View style={styles.sliderChipPosition} pointerEvents="box-none">
+        <RadiusSliderChip
+          value={displayRadiusM}
+          hydrated={settingsHydrated}
+          unit={distanceUnit}
+          onDrag={handleRadiusDrag}
+          onLongPress={() => setPresetOpen(true)}
+        />
+      </View>
+
       {/* ── Row 2 (top: 104): overlay badge centered ── */}
       <View style={styles.badgeRow} pointerEvents="box-none">
         <OverlayBadge
@@ -458,6 +522,15 @@ export function MapScreen({ permissionsGranted }: Props) {
         </View>
       )}
 
+      {/* Flash indicator — shows current radius on change, fades after 1s idle */}
+      {smoothedPos !== null && flashTrigger > 0 && (
+        <RadiusFlashIndicator
+          value={displayRadiusM}
+          unit={distanceUnit}
+          triggerCount={flashTrigger}
+        />
+      )}
+
       <DetailSurface
         visible={detailOpen}
         breakdown={breakdown}
@@ -470,6 +543,14 @@ export function MapScreen({ permissionsGranted }: Props) {
         visible={selectedDevice !== null}
         observation={selectedDevice}
         onClose={() => setSelectedDevice(null)}
+      />
+
+      <RadiusPresetPopover
+        visible={presetOpen}
+        currentRadiusMeters={scanRadiusMeters}
+        unit={distanceUnit}
+        onSelect={handleRadiusPreset}
+        onDismiss={() => setPresetOpen(false)}
       />
     </View>
   );
@@ -508,6 +589,11 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  sliderChipPosition: {
+    position: 'absolute',
+    top: 108,
+    right: 12,
   },
   compassArrow: {
     color: '#c9d1d9',
