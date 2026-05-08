@@ -6,7 +6,6 @@ import {
   GeoJSONSource,
   Layer,
   Map as MapView,
-  UserLocation,
   useCurrentPosition,
   type CameraRef,
   type TrackUserLocationChangeEvent,
@@ -15,6 +14,13 @@ import {
 } from '@maplibre/maplibre-react-native';
 import { PERIPHERY_MAP_STYLE } from './mapStyle';
 import { geoCircle, offsetLatLon } from '../utils/geo';
+import {
+  passesAccuracyFilter,
+  passesMotionFilter,
+  GPS_STALE_MS,
+  GPS_CONFIDENCE_ACCURACY_M,
+  type AcceptedReading,
+} from '../utils/gpsFilter';
 import { useScanStore, EXPIRY_WINDOW_MS } from '../store/scanStore';
 import { calculateScore } from '../score/calculator';
 import { DeviceObservation, DeviceCategory } from '../ble/types';
@@ -24,7 +30,7 @@ import { DetailSurface } from '../ui/DetailSurface';
 import { DeviceDetailModal } from '../ui/DeviceDetailModal';
 
 const SCAN_RADIUS_M = 30;
-const GPS_EMA_ALPHA = 0.5;
+const USER_POSITION_EMA_ALPHA = 0.25;
 
 const FADE_START_MS = 30_000;
 const FADE_WINDOW_MS = EXPIRY_WINDOW_MS - FADE_START_MS;
@@ -71,7 +77,7 @@ export function MapScreen({ permissionsGranted }: Props) {
   const observations = useScanStore((s) => s.observations);
   const scoreHistory = useScanStore((s) => s.scoreHistory);
 
-  // ── Location smoothing (EMA α=0.5) ───────────────────────────────────────
+  // ── Location smoothing with quality filtering ─────────────────────────────
   // Location components must be gated on permissionsGranted because MapScreen
   // is the root view in Phase 3d (mounts before permissions resolve). MapLibre's
   // native location modules silently fail if started before permissions are
@@ -81,18 +87,40 @@ export function MapScreen({ permissionsGranted }: Props) {
   const smoothedRef = useRef<[number, number] | null>(null);
   const [smoothedPos, setSmoothedPos] = useState<[number, number] | null>(null);
 
+  // Filter state — refs so updates don't trigger re-renders
+  const lastAcceptedRef = useRef<AcceptedReading | null>(null);
+  const lastPositionUpdateMsRef = useRef<number>(0);
+  const lastAcceptedAccuracyRef = useRef<number>(Infinity);
+
   useEffect(() => {
     if (!rawPosition?.coords) return;
-    const { longitude, latitude } = rawPosition.coords;
+    const { longitude, latitude, accuracy } = rawPosition.coords;
+    const timestampMs = rawPosition.timestamp;
+
+    // Debug: console.log('[GPS] raw', { lat: latitude, lon: longitude, accuracy, accuracyPass: passesAccuracyFilter(accuracy), motionPass: passesMotionFilter(longitude, latitude, timestampMs, lastAcceptedRef.current) });
+
+    // Reject cell-tower fallback positions and other low-accuracy readings
+    if (!passesAccuracyFilter(accuracy)) return;
+
+    // Reject physically impossible jumps (>10 m/s implies teleportation artifact)
+    if (!passesMotionFilter(longitude, latitude, timestampMs, lastAcceptedRef.current)) return;
+
+    // Reading accepted — update filter state
+    lastAcceptedRef.current = { lon: longitude, lat: latitude, timestampMs };
+    lastPositionUpdateMsRef.current = Date.now();
+    lastAcceptedAccuracyRef.current = accuracy;
+
+    // EMA smoothing (α=0.25 — heavier smoothing than Phase 3c to reduce zigzag)
     if (!smoothedRef.current) {
       smoothedRef.current = [longitude, latitude];
     } else {
       const [pLon, pLat] = smoothedRef.current;
       smoothedRef.current = [
-        GPS_EMA_ALPHA * longitude + (1 - GPS_EMA_ALPHA) * pLon,
-        GPS_EMA_ALPHA * latitude + (1 - GPS_EMA_ALPHA) * pLat,
+        USER_POSITION_EMA_ALPHA * longitude + (1 - USER_POSITION_EMA_ALPHA) * pLon,
+        USER_POSITION_EMA_ALPHA * latitude + (1 - USER_POSITION_EMA_ALPHA) * pLat,
       ];
     }
+    // Debug: console.log('[GPS] smoothedPos updated', smoothedRef.current);
     setSmoothedPos([...smoothedRef.current] as [number, number]);
   }, [rawPosition]);
 
@@ -260,6 +288,29 @@ export function MapScreen({ permissionsGranted }: Props) {
     ? geoCircle(smoothedPos, SCAN_RADIUS_M)
     : null;
 
+  // User dot GeoJSON — recomputed on animTick so staleness (>10s) is detected
+  // without needing a separate interval. Opacity fades to 0.6 when GPS is stale
+  // or inaccurate (>25m); full opacity when confident.
+  const userDotFeature = useMemo((): GeoJSON.FeatureCollection | null => {
+    if (!smoothedPos) return null;
+    const stale =
+      lastPositionUpdateMsRef.current === 0 ||
+      Date.now() - lastPositionUpdateMsRef.current > GPS_STALE_MS;
+    const inaccurate = lastAcceptedAccuracyRef.current > GPS_CONFIDENCE_ACCURACY_M;
+    const opacity = stale || inaccurate ? 0.6 : 1.0;
+    return {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: smoothedPos },
+          properties: { opacity },
+        },
+      ],
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [smoothedPos, animTick]);
+
   return (
     <View style={styles.container}>
       <MapView
@@ -277,8 +328,8 @@ export function MapScreen({ permissionsGranted }: Props) {
           zoom={16}
           onTrackUserLocationChange={handleTrackingChange}
         />
-        {permissionsGranted && <UserLocation />}
 
+        {/* Scan radius — drawn first so it sits below all dots */}
         {radiusFeature && (
           <GeoJSONSource id="scan-radius" data={radiusFeature}>
             <Layer
@@ -298,6 +349,7 @@ export function MapScreen({ permissionsGranted }: Props) {
           </GeoJSONSource>
         )}
 
+        {/* Device dots — above radius, below user dot */}
         <GeoJSONSource
           id="devices"
           data={deviceFeatures}
@@ -317,6 +369,26 @@ export function MapScreen({ permissionsGranted }: Props) {
             }}
           />
         </GeoJSONSource>
+
+        {/* User dot — topmost layer, single source of truth with radius circle.
+            Rendered from smoothedPos (filtered + EMA) so dot and circle always
+            agree. Opacity fades to 0.6 when GPS is stale or inaccurate. */}
+        {userDotFeature && (
+          <GeoJSONSource id="user-position" data={userDotFeature}>
+            <Layer
+              id="user-dot"
+              type="circle"
+              paint={{
+                'circle-color':          '#4A90D9',
+                'circle-radius':         8,
+                'circle-opacity':        ['get', 'opacity'],
+                'circle-stroke-width':   2,
+                'circle-stroke-color':   '#ffffff',
+                'circle-stroke-opacity': ['get', 'opacity'],
+              }}
+            />
+          </GeoJSONSource>
+        )}
       </MapView>
 
       {/* ── Row 1 (top: 52): legend | [space] | compass ── */}
