@@ -2,20 +2,22 @@ import { create } from 'zustand';
 import { DeviceObservation } from '../ble/types';
 import { findRotationCandidate } from '../ble/dedup';
 
-/**
- * Rolling expiry window for live observations (Fix 1 — Issue 17.1).
- *
- * Exported so other modules can share this constant without importing the store.
- * The radial map view (Section 4.6) imports this to drive icon fade-out
- * animation timing described in Section 4.6.3.
- */
 export const EXPIRY_WINDOW_MS = 60_000;
+
+export const SCORE_HISTORY_MAX = 20; // 20 samples × 30 s = 10 min of trend data
+
+export interface ScoreHistorySample {
+  timestamp: number;
+  score: number;
+}
 
 interface ScanStore {
   observations: DeviceObservation[];
   upsertObservation: (obs: DeviceObservation) => void;
   purgeExpired: () => void;
   clear: () => void;
+  scoreHistory: ScoreHistorySample[];
+  recordScore: (score: number) => void;
 }
 
 export const useScanStore = create<ScanStore>((set) => ({
@@ -65,4 +67,11 @@ export const useScanStore = create<ScanStore>((set) => ({
     }),
 
   clear: () => set({ observations: [] }),
+
+  scoreHistory: [],
+  recordScore: (score) =>
+    set((state) => ({
+      scoreHistory: [...state.scoreHistory, { timestamp: Date.now(), score }]
+        .slice(-SCORE_HISTORY_MAX),
+    })),
 }));

@@ -16,25 +16,24 @@ import {
 import { PERIPHERY_MAP_STYLE } from './mapStyle';
 import { geoCircle, offsetLatLon } from '../utils/geo';
 import { useScanStore, EXPIRY_WINDOW_MS } from '../store/scanStore';
-import { DeviceObservation } from '../ble/types';
+import { calculateScore } from '../score/calculator';
+import { DeviceObservation, DeviceCategory } from '../ble/types';
+import { OverlayBadge } from '../ui/OverlayBadge';
+import { CategoryLegend } from '../ui/CategoryLegend';
+import { DetailSurface } from '../ui/DetailSurface';
 import { DeviceDetailModal } from '../ui/DeviceDetailModal';
 
 const SCAN_RADIUS_M = 30;
 const GPS_EMA_ALPHA = 0.5;
 
-// ── Animation constants ───────────────────────────────────────────────────────
-const FADE_START_MS = 30_000;     // hold full opacity until 30s since last seen
-const FADE_WINDOW_MS = EXPIRY_WINDOW_MS - FADE_START_MS; // 30s fade-out window
-const PULSE_DURATION_MS = 300;    // pulse-in ramp on first detection
-const POSITION_EMA_ALPHA = 0.35;  // per-device distance smoothing (mobile categories)
-const ANIM_TICK_MS = 50;          // ~20fps animation loop
+const FADE_START_MS = 30_000;
+const FADE_WINDOW_MS = EXPIRY_WINDOW_MS - FADE_START_MS;
+const PULSE_DURATION_MS = 300;
+const POSITION_EMA_ALPHA = 0.35;
+const ANIM_TICK_MS = 50;
 
-// Categories that can move — receive position EMA smoothing
 const MOBILE_CATEGORIES = new Set(['phone', 'wearable_high', 'wearable_low', 'earbud']);
 
-// ── Visual hierarchy (Section 4.6.7) ─────────────────────────────────────────
-// wearable_high: deep coral, vivid but not alarming — "notable" on the muted basemap
-// All others: desaturated, atmospheric, low contrast on #F4F1ED basemap
 const CATEGORY_COLORS: Record<string, string> = {
   phone:         '#7CBFB0',
   earbud:        '#7AAAC0',
@@ -48,19 +47,37 @@ const CATEGORY_COLORS: Record<string, string> = {
   unknown:       '#6A7480',
 };
 
-// Two-tier radius scale: wearable_high elevated ~43% over standard quiet tier
 const WEARABLE_HIGH_RADIUS = 10;
 const STANDARD_RADIUS = 7;
+const DESATURATED_COLOR = '#4A5260';
+
+// Display order for the category legend — highest threat first
+const CATEGORY_ORDER: DeviceCategory[] = [
+  'wearable_high', 'home_camera', 'doorbell', 'speaker_mic',
+  'vehicle', 'phone', 'wearable_low', 'tracker', 'earbud', 'unknown',
+];
 
 interface Props {
-  onBack: () => void;
+  permissionsGranted: boolean;
 }
 
-export function MapScreen({ onBack }: Props) {
+export function MapScreen({ permissionsGranted }: Props) {
+  // Two separate useScanStore calls (not a single object selector) because
+  // Zustand's default equality check is Object.is. A selector returning
+  // {observations, scoreHistory} would create a fresh object on every call,
+  // causing infinite re-renders when combined with the 20fps animTick loop.
+  // Single-value selectors return stable array references that Zustand
+  // compares correctly. See git history for the Phase 3d crash this prevented.
   const observations = useScanStore((s) => s.observations);
+  const scoreHistory = useScanStore((s) => s.scoreHistory);
 
-  // ── Location smoothing ────────────────────────────────────────────────────
-  const rawPosition = useCurrentPosition();
+  // ── Location smoothing (EMA α=0.5) ───────────────────────────────────────
+  // Location components must be gated on permissionsGranted because MapScreen
+  // is the root view in Phase 3d (mounts before permissions resolve). MapLibre's
+  // native location modules silently fail if started before permissions are
+  // granted — they never activate, never recover, and the user dot never appears.
+  // See git history for the Phase 3d location-lifecycle bug this prevents.
+  const rawPosition = useCurrentPosition({ enabled: permissionsGranted });
   const smoothedRef = useRef<[number, number] | null>(null);
   const [smoothedPos, setSmoothedPos] = useState<[number, number] | null>(null);
 
@@ -86,16 +103,14 @@ export function MapScreen({ onBack }: Props) {
 
   const handleTrackingChange = useCallback(
     (e: NativeSyntheticEvent<TrackUserLocationChangeEvent>) => {
-      if (e.nativeEvent.trackUserLocation === null) {
-        setIsTracking(false);
-      }
+      if (e.nativeEvent.trackUserLocation === null) setIsTracking(false);
     },
     []
   );
 
-  // Bearing updates only — setIsTracking NOT called here. MapLibre fires
-  // userInteraction:true on compass rotations, which would race against
-  // re-engaged tracking. onTrackUserLocationChange is the sole disengagement signal.
+  // Bearing updates only — tracking disengagement handled solely by
+  // onTrackUserLocationChange (MapLibre fires userInteraction:true on compass
+  // rotations, which would race against re-engaged tracking).
   const handleRegionChange = useCallback(
     (e: NativeSyntheticEvent<ViewStateChangeEvent>) => {
       setBearing(e.nativeEvent.bearing);
@@ -105,14 +120,49 @@ export function MapScreen({ onBack }: Props) {
 
   const handleRecenter = useCallback(() => {
     setIsTracking(true);
-    // Intentionally preserves the user's current zoom level. Restoring the
-    // default (16) would override their inspection intent mid-session.
-    // Revisit only if user feedback indicates strong preference for full-reset.
+    // Intentionally preserves user zoom level — see Phase 3b notes.
   }, []);
+
+  // ── Score breakdown ───────────────────────────────────────────────────────
+  const breakdown = useMemo(
+    () => calculateScore(observations),
+    [observations]
+  );
+
+  // ── Category legend / desaturation ───────────────────────────────────────
+  const [desaturatedCategories, setDesaturatedCategories] = useState<
+    Set<DeviceCategory>
+  >(new Set());
+
+  const toggleCategory = useCallback((cat: DeviceCategory) => {
+    setDesaturatedCategories((prev) => {
+      const next = new Set(prev);
+      next.has(cat) ? next.delete(cat) : next.add(cat);
+      return next;
+    });
+  }, []);
+
+  const detectedCategories = useMemo(
+    () =>
+      CATEGORY_ORDER.filter((c) =>
+        observations.some((o) => o.category === c)
+      ),
+    [observations]
+  );
+
+  // ── Detail surface ────────────────────────────────────────────────────────
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  const wearableObservations = useMemo(
+    () => observations.filter((o) => o.category === 'wearable_high'),
+    [observations]
+  );
+
+  // ── Per-device drill-down ─────────────────────────────────────────────────
+  const [selectedDevice, setSelectedDevice] = useState<DeviceObservation | null>(null);
 
   // ── Stable random bearings per device ────────────────────────────────────
   const deviceBearings = useRef<Record<string, number>>({});
-
   const getDeviceBearing = useCallback((id: string): number => {
     if (deviceBearings.current[id] === undefined) {
       deviceBearings.current[id] = Math.random() * 360;
@@ -120,21 +170,15 @@ export function MapScreen({ onBack }: Props) {
     return deviceBearings.current[id];
   }, []);
 
-  // ── Animation tick (~20fps) — drives fade-out, pulse-in, position EMA ────
+  // ── Animation tick (~20fps) ───────────────────────────────────────────────
   const [animTick, setAnimTick] = useState(0);
   useEffect(() => {
     const id = setInterval(() => setAnimTick((t) => t + 1), ANIM_TICK_MS);
     return () => clearInterval(id);
   }, []);
 
-  // Per-device smoothed distances for position EMA.
-  //
-  // Side-effect note: writing to this ref inside useMemo is technically impure.
-  // In React StrictMode (Expo dev builds), useMemo may run twice per render,
-  // applying EMA twice and causing visible dev-only position jitter. In
-  // production release builds StrictMode is inactive — the side effect runs
-  // exactly once and is correct. Refactor to useEffect+useState if dev jitter
-  // becomes disruptive during future development.
+  // Per-device smoothed distances — side effect in useMemo is intentional.
+  // See Phase 3c comment: safe in production (no StrictMode), minor dev jitter only.
   const deviceDistancesRef = useRef<Record<string, number>>({});
 
   // ── Device GeoJSON feature collection ────────────────────────────────────
@@ -145,53 +189,62 @@ export function MapScreen({ onBack }: Props) {
 
     const features: GeoJSON.Feature[] = observations.map((obs) => {
       const isWearableHigh = obs.category === 'wearable_high';
+      const isDesaturated = desaturatedCategories.has(obs.category);
 
-      // Position EMA: smooth RSSI-driven distance changes for mobile categories
+      // Position EMA for mobile categories
       let displayDist = obs.estimatedDistanceM;
       if (MOBILE_CATEGORIES.has(obs.category)) {
         const prev = deviceDistancesRef.current[obs.id];
-        displayDist = prev !== undefined
-          ? POSITION_EMA_ALPHA * obs.estimatedDistanceM + (1 - POSITION_EMA_ALPHA) * prev
-          : obs.estimatedDistanceM;
+        displayDist =
+          prev !== undefined
+            ? POSITION_EMA_ALPHA * obs.estimatedDistanceM +
+              (1 - POSITION_EMA_ALPHA) * prev
+            : obs.estimatedDistanceM;
         deviceDistancesRef.current[obs.id] = displayDist;
       }
 
       const coords = offsetLatLon(smoothedPos, displayDist, getDeviceBearing(obs.id));
 
-      // Fade-out: full opacity for first 30s since last detection,
-      // linear fade from 1.0 → 0 over the following 30s (Section 4.6.3)
+      // Fade-out: full opacity for 30s, linear fade to 0 over following 30s
       const sinceLastSeen = now - obs.lastSeenAt;
-      const fadeOpacity = sinceLastSeen <= FADE_START_MS
-        ? 1.0
-        : Math.max(0, 1 - (sinceLastSeen - FADE_START_MS) / FADE_WINDOW_MS);
+      const fadeOpacity =
+        sinceLastSeen <= FADE_START_MS
+          ? 1.0
+          : Math.max(
+              0,
+              1 - (sinceLastSeen - FADE_START_MS) / FADE_WINDOW_MS
+            );
 
-      // Pulse-in: opacity and radius ramp 0→1 over PULSE_DURATION_MS on
-      // first detection (Section 4.6.3)
-      const pulseProgress = Math.min(1, (now - obs.firstSeenAt) / PULSE_DURATION_MS);
+      // Pulse-in: ramp from 0 over PULSE_DURATION_MS on first detection
+      const pulseProgress = Math.min(
+        1,
+        (now - obs.firstSeenAt) / PULSE_DURATION_MS
+      );
+
       const baseRadius = isWearableHigh ? WEARABLE_HIGH_RADIUS : STANDARD_RADIUS;
+      const color = isDesaturated
+        ? DESATURATED_COLOR
+        : (CATEGORY_COLORS[obs.category] ?? CATEGORY_COLORS.unknown);
+      const opacity = isDesaturated
+        ? 0.25 * pulseProgress
+        : fadeOpacity * pulseProgress;
 
       return {
         type: 'Feature',
         geometry: { type: 'Point', coordinates: coords },
         properties: {
           id: obs.id,
-          color: CATEGORY_COLORS[obs.category] ?? CATEGORY_COLORS.unknown,
+          color,
           radius: baseRadius * (0.8 + 0.2 * pulseProgress),
-          opacity: fadeOpacity * pulseProgress,
-          // Honest position rendering (Section 4.6.8):
-          // wearable_high: sharp solid fill — "presence is asserted"
-          // all others: soft feathered glow — "approximately here"
+          opacity,
           blur: isWearableHigh ? 0 : 0.6,
-          strokeWidth: isWearableHigh ? 1.5 : 0,
+          strokeWidth: isWearableHigh && !isDesaturated ? 1.5 : 0,
         },
       };
     });
 
     return { type: 'FeatureCollection', features };
-  }, [observations, smoothedPos, getDeviceBearing, animTick]);
-
-  // ── Device tap → detail modal ─────────────────────────────────────────────
-  const [selectedDevice, setSelectedDevice] = useState<DeviceObservation | null>(null);
+  }, [observations, smoothedPos, getDeviceBearing, desaturatedCategories, animTick]);
 
   const handleDevicePress = useCallback(
     (e: NativeSyntheticEvent<PressEventWithFeatures>) => {
@@ -203,8 +256,9 @@ export function MapScreen({ onBack }: Props) {
     [observations]
   );
 
-  // ── Radius circle ─────────────────────────────────────────────────────────
-  const radiusFeature = smoothedPos ? geoCircle(smoothedPos, SCAN_RADIUS_M) : null;
+  const radiusFeature = smoothedPos
+    ? geoCircle(smoothedPos, SCAN_RADIUS_M)
+    : null;
 
   return (
     <View style={styles.container}>
@@ -219,12 +273,11 @@ export function MapScreen({ onBack }: Props) {
       >
         <Camera
           ref={cameraRef}
-          trackUserLocation={isTracking ? 'heading' : undefined}
+          trackUserLocation={permissionsGranted && isTracking ? 'heading' : undefined}
           zoom={16}
           onTrackUserLocationChange={handleTrackingChange}
         />
-
-        <UserLocation />
+        {permissionsGranted && <UserLocation />}
 
         {radiusFeature && (
           <GeoJSONSource id="scan-radius" data={radiusFeature}>
@@ -266,43 +319,80 @@ export function MapScreen({ onBack }: Props) {
         </GeoJSONSource>
       </MapView>
 
-      {/* Back button — top-left */}
-      <Pressable
-        style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
-        onPress={onBack}
-        accessibilityLabel="Back to score view"
-      >
-        <Text style={styles.backText}>‹ Score</Text>
-      </Pressable>
-
-      {/* Compass — top-right, rotates with map bearing */}
-      <View
-        style={[styles.compass, { transform: [{ rotate: `${-bearing}deg` }] }]}
-        pointerEvents="none"
-      >
-        <Text style={styles.compassArrow}>↑</Text>
-        <Text style={styles.compassLabel}>N</Text>
+      {/* ── Row 1 (top: 52): legend | [space] | compass ── */}
+      <View style={styles.topRow} pointerEvents="box-none">
+        <CategoryLegend
+          detectedCategories={detectedCategories}
+          desaturated={desaturatedCategories}
+          onToggle={toggleCategory}
+        />
+        {/* Compass — top-right, rotates with map bearing */}
+        <View
+          style={[
+            styles.compass,
+            { transform: [{ rotate: `${-bearing}deg` }] },
+          ]}
+          pointerEvents="none"
+        >
+          <Text style={styles.compassArrow}>↑</Text>
+          <Text style={styles.compassLabel}>N</Text>
+        </View>
       </View>
 
-      {/* Recenter FAB — shown when user has panned away */}
-      {!isTracking && (
+      {/* ── Row 2 (top: 104): overlay badge centered ── */}
+      <View style={styles.badgeRow} pointerEvents="box-none">
+        <OverlayBadge
+          tier={breakdown.tier}
+          deviceCount={breakdown.observationCount}
+          wearableCount={breakdown.byCategory.wearable_high ?? 0}
+          onPress={() => setDetailOpen(true)}
+        />
+      </View>
+
+      {/* ── Bottom-right slot: info FAB (tracking) | recenter pill (panned) ── */}
+      {isTracking ? (
         <Pressable
-          style={({ pressed }) => [styles.recenterFab, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.fab, pressed && styles.pressed]}
+          onPress={() => setDetailOpen(true)}
+          accessibilityLabel="Open device details"
+          accessibilityRole="button"
+        >
+          <Text style={styles.fabIcon}>≡</Text>
+        </Pressable>
+      ) : (
+        <Pressable
+          style={({ pressed }) => [styles.recenterPill, pressed && styles.pressed]}
           onPress={handleRecenter}
           accessibilityLabel="Re-center on my location"
           accessibilityRole="button"
         >
-          <Text style={styles.recenterIcon}>◎</Text>
+          <Text style={styles.recenterText}>◎  Recenter</Text>
         </Pressable>
       )}
 
-      {/* Honest position footer — Section 4.6.8: present but unobtrusive */}
+      {/* Honest position footer — Section 4.6.8 */}
       <Text style={styles.positionDisclaimer} pointerEvents="none">
         Device positions are approximate. Bearings are estimated, not measured.
       </Text>
 
       {/* MapTiler attribution — required by ToS */}
       <Text style={styles.attribution}>© MapTiler © OpenStreetMap contributors</Text>
+
+      {!permissionsGranted && (
+        <View style={styles.permissionPending} pointerEvents="none">
+          <Text style={styles.permissionPendingText}>
+            Awaiting location permission…
+          </Text>
+        </View>
+      )}
+
+      <DetailSurface
+        visible={detailOpen}
+        breakdown={breakdown}
+        scoreHistory={scoreHistory}
+        wearableObservations={wearableObservations}
+        onClose={() => setDetailOpen(false)}
+      />
 
       <DeviceDetailModal
         visible={selectedDevice !== null}
@@ -321,27 +411,25 @@ const styles = StyleSheet.create({
   map: {
     flex: 1,
   },
-  backButton: {
+
+  // ── Top HUD ──────────────────────────────────────────────────────────────
+  topRow: {
     position: 'absolute',
-    top: 48,
-    left: 16,
-    backgroundColor: 'rgba(13, 17, 23, 0.85)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
+    top: 52,
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
-  pressed: {
-    opacity: 0.7,
-  },
-  backText: {
-    color: '#c9d1d9',
-    fontSize: 14,
-    fontWeight: '600',
+  badgeRow: {
+    position: 'absolute',
+    top: 104,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
   },
   compass: {
-    position: 'absolute',
-    top: 48,
-    right: 16,
     backgroundColor: 'rgba(13, 17, 23, 0.75)',
     width: 40,
     height: 40,
@@ -360,21 +448,45 @@ const styles = StyleSheet.create({
     lineHeight: 10,
     letterSpacing: 0.5,
   },
-  recenterFab: {
+
+  // ── Bottom-right slot ─────────────────────────────────────────────────────
+  fab: {
     position: 'absolute',
-    bottom: 48,
-    right: 16,
+    bottom: 32,
+    right: 24,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: 'rgba(13, 17, 23, 0.85)',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  recenterIcon: {
+  fabIcon: {
     color: '#7CBFB0',
-    fontSize: 22,
+    fontSize: 20,
+    fontWeight: '600',
   },
+  recenterPill: {
+    position: 'absolute',
+    bottom: 32,
+    right: 24,
+    backgroundColor: 'rgba(13, 17, 23, 0.85)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  recenterText: {
+    color: '#7CBFB0',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+
+  // ── Footer ────────────────────────────────────────────────────────────────
   positionDisclaimer: {
     position: 'absolute',
     bottom: 24,
@@ -395,5 +507,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingVertical: 2,
     borderRadius: 2,
+  },
+
+  // ── Permissions pending ───────────────────────────────────────────────────
+  permissionPending: {
+    position: 'absolute',
+    bottom: 60,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  permissionPendingText: {
+    color: '#8b949e',
+    fontSize: 12,
+    fontStyle: 'italic',
   },
 });
