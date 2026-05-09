@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { PermissionsAndroid, Platform, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
@@ -9,6 +9,7 @@ import { useSettingsStore } from './src/store/settingsStore';
 import { DeviceObservation } from './src/ble/types';
 import { MapScreen } from './src/map/MapScreen';
 import { OnboardingScreen } from './src/ui/OnboardingScreen';
+import { SplashScreen } from './src/ui/SplashScreen';
 import {
   dispatchWearableAlert,
 } from './src/notifications/wearableAlertDispatcher';
@@ -39,6 +40,12 @@ export default function App() {
   const wearableNotificationsEnabled = useSettingsStore((s) => s.wearableNotificationsEnabled);
   const lastNotificationFiredAt = useSettingsStore((s) => s.lastNotificationFiredAt);
   const setLastNotificationFiredAt = useSettingsStore((s) => s.setLastNotificationFiredAt);
+
+  const [splashMounted, setSplashMounted] = useState(true);
+  const [mapReady, setMapReady] = useState(false);
+
+  const handleMapReady = useCallback(() => setMapReady(true), []);
+  const handleSplashDone = useCallback(() => setSplashMounted(false), []);
 
   // Keep ref in sync so score sampling interval never closes over stale observations
   useEffect(() => {
@@ -98,20 +105,19 @@ export default function App() {
     prevObservationsRef.current = observations;
   }, [observations, wearableNotificationsEnabled, lastNotificationFiredAt, setLastNotificationFiredAt]);
 
-  // While store is hydrating from AsyncStorage, render a blank dark screen.
-  // This prevents a ~100ms flash of the onboarding screen for returning users
-  // (hasCompletedOnboarding defaults to false before hydration resolves).
-  if (!hydrated) {
-    return <View style={{ flex: 1, backgroundColor: '#0d1117' }} />;
-  }
-
   return (
     <>
       <StatusBar style="light" />
-      {hasCompletedOnboarding
-        ? <MapScreen permissionsGranted={permissionsGranted} />
-        : <OnboardingScreen />
-      }
+
+      {hydrated ? (
+        hasCompletedOnboarding
+          ? <MapScreen permissionsGranted={permissionsGranted} onMapReady={handleMapReady} />
+          : <OnboardingScreen />
+      ) : (
+        <View style={{ flex: 1, backgroundColor: '#0d1117' }} />
+      )}
+
+      {splashMounted && <SplashScreen onDone={handleSplashDone} />}
     </>
   );
 }

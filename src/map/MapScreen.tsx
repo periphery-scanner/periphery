@@ -70,9 +70,10 @@ const CATEGORY_ORDER: DeviceCategory[] = [
 
 interface Props {
   permissionsGranted: boolean;
+  onMapReady?: () => void;
 }
 
-export function MapScreen({ permissionsGranted }: Props) {
+export function MapScreen({ permissionsGranted, onMapReady }: Props) {
   // Two separate useScanStore calls (not a single object selector) because
   // Zustand's default equality check is Object.is. A selector returning
   // {observations, scoreHistory} would create a fresh object on every call,
@@ -395,6 +396,7 @@ export function MapScreen({ permissionsGranted }: Props) {
         compass={false}
         scaleBar={false}
         onRegionIsChanging={handleRegionChange}
+        onDidFinishLoadingStyle={onMapReady}
       >
         <Camera
           ref={cameraRef}
