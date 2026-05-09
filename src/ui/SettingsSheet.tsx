@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { DistanceUnitSection } from './settings/DistanceUnitSection';
+import { NotificationsSection } from './settings/NotificationsSection';
 import { CategoryFiltersSection } from './settings/CategoryFiltersSection';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -168,6 +169,7 @@ export function SettingsSheet({ visible, onDismiss }: Props) {
           keyboardShouldPersistTaps="handled"
         >
           <DistanceUnitSection />
+          <NotificationsSection />
           <CategoryFiltersSection />
           {/* Future sections added here */}
           <View style={styles.bottomPadding} />

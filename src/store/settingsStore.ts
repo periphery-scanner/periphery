@@ -25,11 +25,17 @@ interface SettingsState {
   // Array, not Set — Set is not JSON-serializable and AsyncStorage requires JSON.
   // Convert to Set at call sites when O(1) lookup is needed.
   disabledCategories: string[];
+  hasCompletedOnboarding: boolean;
+  wearableNotificationsEnabled: boolean;
+  lastNotificationFiredAt: number | null;
   hydrated: boolean;
   setScanRadiusMeters: (value: number) => void;
   setDistanceUnit: (unit: 'feet' | 'meters') => void;
   toggleCategoryDisabled: (category: string) => void;
   setCategoriesDisabled: (categories: string[]) => void;
+  setHasCompletedOnboarding: (value: boolean) => void;
+  setWearableNotificationsEnabled: (value: boolean) => void;
+  setLastNotificationFiredAt: (ts: number) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -38,6 +44,9 @@ export const useSettingsStore = create<SettingsState>()(
       scanRadiusMeters: 30,
       distanceUnit: detectDefaultUnit(),
       disabledCategories: [],
+      hasCompletedOnboarding: false,
+      wearableNotificationsEnabled: false,
+      lastNotificationFiredAt: null,
       hydrated: false,
       setScanRadiusMeters: (value) =>
         set({ scanRadiusMeters: Math.max(3, Math.min(150, value)) }),
@@ -49,6 +58,9 @@ export const useSettingsStore = create<SettingsState>()(
             : [...s.disabledCategories, category],
         })),
       setCategoriesDisabled: (categories) => set({ disabledCategories: categories }),
+      setHasCompletedOnboarding: (value) => set({ hasCompletedOnboarding: value }),
+      setWearableNotificationsEnabled: (value) => set({ wearableNotificationsEnabled: value }),
+      setLastNotificationFiredAt: (ts) => set({ lastNotificationFiredAt: ts }),
     }),
     {
       name: 'periphery-settings',
