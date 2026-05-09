@@ -17,6 +17,7 @@ import {
 import { DistanceUnitSection } from './settings/DistanceUnitSection';
 import { NotificationsSection } from './settings/NotificationsSection';
 import { CategoryFiltersSection } from './settings/CategoryFiltersSection';
+import { AboutSection } from './settings/AboutSection';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const HALF_HEIGHT = SCREEN_HEIGHT * 0.5;
@@ -171,7 +172,7 @@ export function SettingsSheet({ visible, onDismiss }: Props) {
           <DistanceUnitSection />
           <NotificationsSection />
           <CategoryFiltersSection />
-          {/* Future sections added here */}
+          <AboutSection />
           <View style={styles.bottomPadding} />
         </ScrollView>
         </Animated.View>

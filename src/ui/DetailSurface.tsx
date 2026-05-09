@@ -106,6 +106,7 @@ interface Props {
   scoreHistory: ScoreHistorySample[];
   wearableObservations: DeviceObservation[];
   onClose: () => void;
+  onOpenMethodology: () => void;
 }
 
 export function DetailSurface({
@@ -114,6 +115,7 @@ export function DetailSurface({
   scoreHistory,
   wearableObservations,
   onClose,
+  onOpenMethodology,
 }: Props) {
   const [methodologyExpanded, setMethodologyExpanded] = useState(false);
   const translateY = useRef(new Animated.Value(0)).current;
@@ -272,6 +274,25 @@ export function DetailSurface({
                 </Text>
               </View>
             )}
+
+            <View style={styles.divider} />
+
+            {/* Methodology deep-dive — opens WhyClassifiedPage at MapScreen level
+                (sibling Modal, not nested) to avoid Android back-button mis-routing */}
+            <Pressable
+              style={({ pressed }) => [
+                styles.methodologyLink,
+                pressed && styles.methodologyLinkPressed,
+              ]}
+              onPress={onOpenMethodology}
+              accessibilityRole="button"
+              accessibilityLabel="How Periphery classifies devices"
+            >
+              <Text style={styles.methodologyLinkText}>
+                How Periphery classifies devices
+              </Text>
+              <Text style={styles.methodologyLinkChevron}>→</Text>
+            </Pressable>
 
             <View style={styles.bottomPad} />
           </ScrollView>
@@ -446,5 +467,25 @@ const styles = StyleSheet.create({
   },
   bottomPad: {
     height: 32,
+  },
+
+  // ── Methodology link ──────────────────────────────────────────────────────
+  methodologyLink: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  methodologyLinkPressed: {
+    opacity: 0.6,
+  },
+  methodologyLinkText: {
+    color: '#6a7480',
+    fontSize: 13,
+    flex: 1,
+  },
+  methodologyLinkChevron: {
+    color: '#6a7480',
+    fontSize: 13,
   },
 });
