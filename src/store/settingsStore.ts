@@ -22,9 +22,14 @@ function detectDefaultUnit(): 'feet' | 'meters' {
 interface SettingsState {
   scanRadiusMeters: number;
   distanceUnit: 'feet' | 'meters';
+  // Array, not Set — Set is not JSON-serializable and AsyncStorage requires JSON.
+  // Convert to Set at call sites when O(1) lookup is needed.
+  disabledCategories: string[];
   hydrated: boolean;
   setScanRadiusMeters: (value: number) => void;
   setDistanceUnit: (unit: 'feet' | 'meters') => void;
+  toggleCategoryDisabled: (category: string) => void;
+  setCategoriesDisabled: (categories: string[]) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -32,10 +37,18 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       scanRadiusMeters: 30,
       distanceUnit: detectDefaultUnit(),
+      disabledCategories: [],
       hydrated: false,
       setScanRadiusMeters: (value) =>
         set({ scanRadiusMeters: Math.max(3, Math.min(150, value)) }),
       setDistanceUnit: (unit) => set({ distanceUnit: unit }),
+      toggleCategoryDisabled: (category) =>
+        set((s) => ({
+          disabledCategories: s.disabledCategories.includes(category)
+            ? s.disabledCategories.filter((c) => c !== category)
+            : [...s.disabledCategories, category],
+        })),
+      setCategoriesDisabled: (categories) => set({ disabledCategories: categories }),
     }),
     {
       name: 'periphery-settings',

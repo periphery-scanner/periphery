@@ -31,6 +31,7 @@ import { DeviceDetailModal } from '../ui/DeviceDetailModal';
 import { RadiusSliderChip } from '../ui/RadiusSliderChip';
 import { RadiusPresetPopover } from '../ui/RadiusPresetPopover';
 import { RadiusFlashIndicator } from '../ui/RadiusFlashIndicator';
+import { SettingsSheet } from '../ui/SettingsSheet';
 import { useSettingsStore } from '../store/settingsStore';
 
 const USER_POSITION_EMA_ALPHA = 0.25;
@@ -85,6 +86,11 @@ export function MapScreen({ permissionsGranted }: Props) {
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const settingsHydrated = useSettingsStore((s) => s.hydrated);
   const setScanRadiusMeters = useSettingsStore((s) => s.setScanRadiusMeters);
+  const disabledCategoriesArr = useSettingsStore((s) => s.disabledCategories);
+  const disabledCategoriesSet = useMemo(
+    () => new Set<DeviceCategory>(disabledCategoriesArr as DeviceCategory[]),
+    [disabledCategoriesArr]
+  );
 
   // ── Radius animation ──────────────────────────────────────────────────────
   // displayRadiusM drives geoCircle and outside-radius opacity.
@@ -217,16 +223,22 @@ export function MapScreen({ permissionsGranted }: Props) {
     });
   }, []);
 
+  // Enabled categories with currently detected devices — feeds the legend's normal rows.
+  // Persistently-disabled categories are excluded here; they appear in the legend
+  // separately via the disabledCategoriesSet prop.
   const detectedCategories = useMemo(
     () =>
-      CATEGORY_ORDER.filter((c) =>
-        observations.some((o) => o.category === c)
+      CATEGORY_ORDER.filter(
+        (c) => !disabledCategoriesSet.has(c) && observations.some((o) => o.category === c)
       ),
-    [observations]
+    [observations, disabledCategoriesSet]
   );
 
   // ── Detail surface ────────────────────────────────────────────────────────
   const [detailOpen, setDetailOpen] = useState(false);
+
+  // ── Settings sheet ────────────────────────────────────────────────────────
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const wearableObservations = useMemo(
     () => observations.filter((o) => o.category === 'wearable_high'),
@@ -262,9 +274,11 @@ export function MapScreen({ permissionsGranted }: Props) {
 
     const now = Date.now();
 
-    const features: GeoJSON.Feature[] = observations.map((obs) => {
-      const isWearableHigh = obs.category === 'wearable_high';
-      const isDesaturated = desaturatedCategories.has(obs.category);
+    const features: GeoJSON.Feature[] = observations
+      .filter((obs) => !disabledCategoriesSet.has(obs.category))
+      .map((obs) => {
+        const isWearableHigh = obs.category === 'wearable_high';
+        const isDesaturated = desaturatedCategories.has(obs.category);
 
       // Position EMA for mobile categories
       let displayDist = obs.estimatedDistanceM;
@@ -325,7 +339,7 @@ export function MapScreen({ permissionsGranted }: Props) {
     });
 
     return { type: 'FeatureCollection', features };
-  }, [observations, smoothedPos, getDeviceBearing, desaturatedCategories, displayRadiusM, animTick]);
+  }, [observations, smoothedPos, getDeviceBearing, desaturatedCategories, disabledCategoriesSet, displayRadiusM, animTick]);
 
   const handleDevicePress = useCallback(
     (e: NativeSyntheticEvent<PressEventWithFeatures>) => {
@@ -450,6 +464,8 @@ export function MapScreen({ permissionsGranted }: Props) {
           detectedCategories={detectedCategories}
           desaturated={desaturatedCategories}
           onToggle={toggleCategory}
+          disabledCategories={disabledCategoriesSet}
+          onDisabledTap={() => setSettingsOpen(true)}
         />
         {/* Compass — top-right, rotates with map bearing */}
         <View
@@ -485,15 +501,15 @@ export function MapScreen({ permissionsGranted }: Props) {
         />
       </View>
 
-      {/* ── Bottom-right slot: info FAB (tracking) | recenter pill (panned) ── */}
+      {/* ── Bottom-right slot: settings FAB (tracking) | recenter pill (panned) ── */}
       {isTracking ? (
         <Pressable
           style={({ pressed }) => [styles.fab, pressed && styles.pressed]}
-          onPress={() => setDetailOpen(true)}
-          accessibilityLabel="Open device details"
+          onPress={() => setSettingsOpen(true)}
+          accessibilityLabel="Open settings"
           accessibilityRole="button"
         >
-          <Text style={styles.fabIcon}>≡</Text>
+          <Text style={styles.fabIcon}>⚙︎</Text>
         </Pressable>
       ) : (
         <Pressable
@@ -551,6 +567,11 @@ export function MapScreen({ permissionsGranted }: Props) {
         unit={distanceUnit}
         onSelect={handleRadiusPreset}
         onDismiss={() => setPresetOpen(false)}
+      />
+
+      <SettingsSheet
+        visible={settingsOpen}
+        onDismiss={() => setSettingsOpen(false)}
       />
     </View>
   );
