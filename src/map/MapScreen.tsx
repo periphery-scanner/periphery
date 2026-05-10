@@ -33,6 +33,8 @@ import { RadiusPresetPopover } from '../ui/RadiusPresetPopover';
 import { RadiusFlashIndicator } from '../ui/RadiusFlashIndicator';
 import { SettingsSheet } from '../ui/SettingsSheet';
 import { WhyClassifiedPage } from '../ui/WhyClassifiedPage';
+import { PrivacyWhitepaperPage } from '../ui/PrivacyWhitepaperPage';
+import { TermsOfServicePage } from '../ui/TermsOfServicePage';
 import { useSettingsStore } from '../store/settingsStore';
 
 const USER_POSITION_EMA_ALPHA = 0.25;
@@ -247,6 +249,11 @@ export function MapScreen({ permissionsGranted, onMapReady }: Props) {
   // to avoid nested Modal issues on Android — hardware back button routes to
   // the first Modal in the tree, not the most recently opened one.
   const [whyClassifiedOpen, setWhyClassifiedOpen] = useState(false);
+
+  // ── Document pages (Privacy Whitepaper, Terms of Service) ─────────────────
+  // Same sibling-Modal pattern as WhyClassifiedPage.
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [tosOpen, setTosOpen] = useState(false);
 
   const wearableObservations = useMemo(
     () => observations.filter((o) => o.category === 'wearable_high'),
@@ -582,11 +589,23 @@ export function MapScreen({ permissionsGranted, onMapReady }: Props) {
       <SettingsSheet
         visible={settingsOpen}
         onDismiss={() => setSettingsOpen(false)}
+        onOpenPrivacy={() => setPrivacyOpen(true)}
+        onOpenTos={() => setTosOpen(true)}
       />
 
       <WhyClassifiedPage
         visible={whyClassifiedOpen}
         onDismiss={() => setWhyClassifiedOpen(false)}
+      />
+
+      <PrivacyWhitepaperPage
+        visible={privacyOpen}
+        onDismiss={() => setPrivacyOpen(false)}
+      />
+
+      <TermsOfServicePage
+        visible={tosOpen}
+        onDismiss={() => setTosOpen(false)}
       />
     </View>
   );

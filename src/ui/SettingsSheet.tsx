@@ -27,9 +27,11 @@ const STATUS_BAR_HEIGHT = StatusBar.currentHeight ?? 24;
 interface Props {
   visible: boolean;
   onDismiss: () => void;
+  onOpenPrivacy: () => void;
+  onOpenTos: () => void;
 }
 
-export function SettingsSheet({ visible, onDismiss }: Props) {
+export function SettingsSheet({ visible, onDismiss, onOpenPrivacy, onOpenTos }: Props) {
   const sheetHeight = useRef(new Animated.Value(HALF_HEIGHT)).current;
   const translateY = useRef(new Animated.Value(HALF_HEIGHT)).current;
   const isExpandedRef = useRef(false);
@@ -172,7 +174,7 @@ export function SettingsSheet({ visible, onDismiss }: Props) {
           <DistanceUnitSection />
           <NotificationsSection />
           <CategoryFiltersSection />
-          <AboutSection />
+          <AboutSection onOpenPrivacy={onOpenPrivacy} onOpenTos={onOpenTos} />
           <View style={styles.bottomPadding} />
         </ScrollView>
         </Animated.View>

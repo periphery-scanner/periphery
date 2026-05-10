@@ -1,8 +1,5 @@
 import type { StyleSpecification } from '@maplibre/maplibre-react-native';
-
-// TODO v2: move to build variable before public release
-// Sign up free at https://maptiler.com — paste your key below.
-const MAPTILER_API_KEY = 'your_key_here';
+import { MAPTILER_API_KEY } from '@env';
 
 // Periphery muted basemap style. Geography is the ground; device icons are
 // the figure. Palette reference: Section 4.6.1 of the v1.1 spec.

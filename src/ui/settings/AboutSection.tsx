@@ -7,22 +7,26 @@ import {
   View,
 } from 'react-native';
 
-const COMING_SOON_COPY: Record<string, string> = {
-  privacy:
-    "The Privacy Policy will be published before Periphery's public launch. We're drafting it carefully to honor the same principles the app embodies.",
-  tos:
-    "The Terms of Service will be published before Periphery's public launch. We want them readable by a real person, not just lawyers.",
-  repo:
-    "The Periphery source code will be published at launch. We're preparing the repository and documentation now.",
-};
+const REPO_COPY =
+  'The Periphery source code is published under the AGPL-3.0 license and will be available at github.com/periphery-scanner/periphery before public launch. Inspect, modify, and contribute.';
 
-const PLACEHOLDER_ROWS = [
-  { key: 'privacy', label: 'Privacy Policy' },
-  { key: 'tos', label: 'Terms of Service' },
-  { key: 'repo', label: 'Open-Source Repository' },
-] as const;
+interface NavigationRowProps {
+  label: string;
+  onPress: () => void;
+}
 
-type PlaceholderKey = typeof PLACEHOLDER_ROWS[number]['key'];
+function NavigationRow({ label, onPress }: NavigationRowProps) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowDimmed]}
+      onPress={onPress}
+      accessibilityRole="button"
+    >
+      <Text style={styles.linkLabel}>{label}</Text>
+      <Text style={styles.linkChevron}>›</Text>
+    </Pressable>
+  );
+}
 
 interface PlaceholderRowProps {
   label: string;
@@ -58,17 +62,18 @@ function PlaceholderRow({ label, isOpen, onToggle, onCollapse, copy }: Placehold
   );
 }
 
-export function AboutSection() {
-  const [openRow, setOpenRow] = useState<PlaceholderKey | null>(null);
+interface Props {
+  onOpenPrivacy: () => void;
+  onOpenTos: () => void;
+}
+
+export function AboutSection({ onOpenPrivacy, onOpenTos }: Props) {
+  const [repoOpen, setRepoOpen] = useState(false);
   const [showEmailFallback, setShowEmailFallback] = useState(false);
 
-  const toggleRow = (key: PlaceholderKey) => {
-    setOpenRow((prev) => (prev === key ? null : key));
-  };
-
-  // "Send feedback" diverges from the three placeholder rows intentionally.
-  // Those rows expand inline to show "coming soon" copy — consistent UX for
-  // unavailable content. This row attempts immediate action (mailto: link)
+  // "Send feedback" diverges from the other rows intentionally.
+  // Those rows navigate to document pages or expand inline — consistent UX for
+  // their content type. This row attempts immediate action (mailto: link)
   // because single-tap feedback is the goal. The inline email fallback only
   // surfaces when no mail client is configured.
   const handleFeedback = async () => {
@@ -99,16 +104,16 @@ export function AboutSection() {
 
       <View style={styles.separator} />
 
-      {PLACEHOLDER_ROWS.map(({ key, label }) => (
-        <PlaceholderRow
-          key={key}
-          label={label}
-          isOpen={openRow === key}
-          onToggle={() => toggleRow(key)}
-          onCollapse={() => setOpenRow(null)}
-          copy={COMING_SOON_COPY[key]}
-        />
-      ))}
+      <NavigationRow label="Privacy Policy" onPress={onOpenPrivacy} />
+      <NavigationRow label="Terms of Service" onPress={onOpenTos} />
+
+      <PlaceholderRow
+        label="Open-Source Repository"
+        isOpen={repoOpen}
+        onToggle={() => setRepoOpen((prev) => !prev)}
+        onCollapse={() => setRepoOpen(false)}
+        copy={REPO_COPY}
+      />
 
       <Pressable
         style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowDimmed]}
