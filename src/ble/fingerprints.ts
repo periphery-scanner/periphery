@@ -19,10 +19,6 @@ export const MANUFACTURER_IDS = {
   MICROSOFT: 0x0006,
   SAMSUNG: 0x0075,
   AMAZON: 0x0171,
-  // BUG: 0x0644 is Apogee Instruments (scientific/environmental sensors), not Meta —
-  // pre-existing misclassification. Flagged for removal in a separate commit after
-  // field validation confirms no Ray-Ban signals are observed on this ID.
-  APOGEE_INSTRUMENTS: 0x0644,
   SONOS: 0x0218,
   TILE: 0x0067,
   TESLA: 0x05F1,
@@ -176,12 +172,6 @@ export function classifyDevice(
   if (manufacturerId === MANUFACTURER_IDS.AMAZON) {
     // Most Amazon BLE = Ring devices or Echo. Conservative classification:
     return { category: 'doorbell', confidence: 0.5 };
-  }
-
-  // BUG: APOGEE_INSTRUMENTS (0x0644) was mislabeled as META — this branch should be
-  // removed once field data confirms no Ray-Ban signals use 0x0644.
-  if (manufacturerId === MANUFACTURER_IDS.APOGEE_INSTRUMENTS) {
-    return { category: 'wearable_high', confidence: 0.7 };
   }
 
   if (manufacturerId === MANUFACTURER_IDS.META_PLATFORMS) {
