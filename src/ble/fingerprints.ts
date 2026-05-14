@@ -19,13 +19,21 @@ export const MANUFACTURER_IDS = {
   MICROSOFT: 0x0006,
   SAMSUNG: 0x0075,
   AMAZON: 0x0171,
-  META: 0x0644,
+  // BUG: 0x0644 is Apogee Instruments (scientific/environmental sensors), not Meta —
+  // pre-existing misclassification. Flagged for removal in a separate commit after
+  // field validation confirms no Ray-Ban signals are observed on this ID.
+  APOGEE_INSTRUMENTS: 0x0644,
   SONOS: 0x0218,
   TILE: 0x0067,
   TESLA: 0x05F1,
   BOSE: 0x009E,
   GARMIN: 0x0087,
   GOPRO: 0x0085,
+  // Camera wearable / eyewear manufacturers
+  META_PLATFORMS: 0x01AB,              // Meta Platforms, Inc.
+  META_PLATFORMS_TECHNOLOGIES: 0x058E, // Meta Platforms Technologies, LLC
+  ESSILORLUXOTTICA: 0x0D53,            // EssilorLuxottica S.A.
+  SNAP: 0x03C2,                        // Snap, Inc.
 } as const;
 
 /** Apple Continuity Protocol message types (byte after company ID) */
@@ -162,7 +170,7 @@ export function classifyDevice(
     return classifyAppleDevice(payload[0], payload);
   }
 
-  // TODO: implement Google, Amazon (Ring), Meta (Ray-Bans) classifiers
+  // TODO: implement Google, Amazon (Ring) classifiers
   // Each manufacturer has its own protocol; this is empirical work.
 
   if (manufacturerId === MANUFACTURER_IDS.AMAZON) {
@@ -170,9 +178,32 @@ export function classifyDevice(
     return { category: 'doorbell', confidence: 0.5 };
   }
 
-  if (manufacturerId === MANUFACTURER_IDS.META) {
-    // Meta BLE in the wild is most likely Ray-Bans — high-asymmetry threat
+  // BUG: APOGEE_INSTRUMENTS (0x0644) was mislabeled as META — this branch should be
+  // removed once field data confirms no Ray-Ban signals use 0x0644.
+  if (manufacturerId === MANUFACTURER_IDS.APOGEE_INSTRUMENTS) {
     return { category: 'wearable_high', confidence: 0.7 };
+  }
+
+  if (manufacturerId === MANUFACTURER_IDS.META_PLATFORMS) {
+    // Covers all Meta-branded BLE products including phones, Quest, Ray-Ban glasses
+    return { category: 'wearable_high', confidence: 0.65 };
+  }
+
+  // 0x058E also covers Meta Quest VR headsets — accepting false-positive rate for v1;
+  // differentiation via Fast Pair Model ID or Service UUID is a post-WD6 task.
+  if (manufacturerId === MANUFACTURER_IDS.META_PLATFORMS_TECHNOLOGIES) {
+    // Covers Quest VR primarily, Ray-Ban Meta secondary
+    return { category: 'wearable_high', confidence: 0.60 };
+  }
+
+  if (manufacturerId === MANUFACTURER_IDS.ESSILORLUXOTTICA) {
+    // Eyewear-primary manufacturer — highest glasses signal-to-noise
+    return { category: 'wearable_high', confidence: 0.80 };
+  }
+
+  if (manufacturerId === MANUFACTURER_IDS.SNAP) {
+    // Spectacles plus Snap SDK presence
+    return { category: 'wearable_high', confidence: 0.65 };
   }
 
   if (manufacturerId === MANUFACTURER_IDS.GOOGLE) {
