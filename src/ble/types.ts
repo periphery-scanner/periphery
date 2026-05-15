@@ -40,12 +40,17 @@ export interface DeviceObservation {
    */
   continuityFingerprint?: string;
   /**
-   * Present only when classification fell through to the name-match path.
-   * Format: "name-match:<pattern>" — e.g. "name-match:rayban".
-   * Undefined for Company-ID-based classifications.
+   * Parseable signal identifier for this classification.
+   * Format: "<signal-type>:<identifier>", e.g.:
+   *   "company-id:0x01AB"         — matched Bluetooth SIG Company ID
+   *   "apple-continuity:nearby"   — Apple Continuity Protocol message type
+   *   "name-match:rayban"         — bonded-state broadcast name fallback
+   *   "fallthrough:none"          — no known signal matched
    * Used by the detection-reason disclosure UI (task c).
+   * UI resolves human-readable manufacturer names from MANUFACTURER_IDS; this
+   * field carries only the signal identifier.
    */
-  reason?: string;
+  reason: string;
 }
 
 export interface ScanWindow {

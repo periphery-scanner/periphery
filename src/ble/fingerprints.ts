@@ -71,46 +71,46 @@ const CAMERA_EQUIPPED_AIRPODS_MODELS: Set<number> = new Set([
 export function classifyAppleDevice(
   messageType: number,
   payload: Uint8Array
-): { category: DeviceCategory; confidence: number } {
+): { category: DeviceCategory; confidence: number; reason: string } {
   switch (messageType) {
     case APPLE_MESSAGE_TYPES.NEARBY:
       // Nearby is broadcast by every active iPhone/iPad
-      return { category: 'phone', confidence: 0.9 };
+      return { category: 'phone', confidence: 0.9, reason: 'apple-continuity:nearby' };
 
     case APPLE_MESSAGE_TYPES.HANDOFF:
-      return { category: 'phone', confidence: 0.85 };
+      return { category: 'phone', confidence: 0.85, reason: 'apple-continuity:handoff' };
 
     case APPLE_MESSAGE_TYPES.AIRDROP:
-      return { category: 'phone', confidence: 0.8 };
+      return { category: 'phone', confidence: 0.8, reason: 'apple-continuity:airdrop' };
 
     case APPLE_MESSAGE_TYPES.AIRPODS: {
       if (payload.length < 2) {
-        return { category: 'earbud', confidence: 0.4 };
+        return { category: 'earbud', confidence: 0.4, reason: 'apple-continuity:airpods' };
       }
       const modelByte = payload[1];
       if (CAMERA_EQUIPPED_AIRPODS_MODELS.has(modelByte)) {
-        return { category: 'wearable_high', confidence: 0.85 };
+        return { category: 'wearable_high', confidence: 0.85, reason: 'apple-continuity:airpods-camera' };
       }
       if (modelByte === AIRPODS_MODELS.AIRPODS_MAX) {
         // Headphones, mic only — heavier than earbuds but not high-asymmetry
-        return { category: 'wearable_low', confidence: 0.8 };
+        return { category: 'wearable_low', confidence: 0.8, reason: 'apple-continuity:airpods-max' };
       }
-      return { category: 'earbud', confidence: 0.85 };
+      return { category: 'earbud', confidence: 0.85, reason: 'apple-continuity:airpods' };
     }
 
     case APPLE_MESSAGE_TYPES.FINDMY:
       // AirTag or lost device beacon — useful as density signal, not a threat
-      return { category: 'tracker', confidence: 0.7 };
+      return { category: 'tracker', confidence: 0.7, reason: 'apple-continuity:findmy' };
 
     case APPLE_MESSAGE_TYPES.IBEACON:
-      return { category: 'unknown', confidence: 0.3 };
+      return { category: 'unknown', confidence: 0.3, reason: 'apple-continuity:ibeacon' };
 
     case APPLE_MESSAGE_TYPES.APPLE_TV_PAIRING:
       // Apple TV is a stationary speaker_mic adjacent — Siri-enabled
-      return { category: 'speaker_mic', confidence: 0.7 };
+      return { category: 'speaker_mic', confidence: 0.7, reason: 'apple-continuity:appletv-pairing' };
 
     default:
-      return { category: 'unknown', confidence: 0.2 };
+      return { category: 'unknown', confidence: 0.2, reason: 'apple-continuity:unknown' };
   }
 }
 
@@ -188,7 +188,7 @@ export function classifyDevice(
   manufacturerId: number,
   payload: Uint8Array,
   broadcastName?: string
-): { category: DeviceCategory; confidence: number; reason?: string } {
+): { category: DeviceCategory; confidence: number; reason: string } {
   if (manufacturerId === MANUFACTURER_IDS.APPLE && payload.length >= 1) {
     return classifyAppleDevice(payload[0], payload);
   }
@@ -198,53 +198,54 @@ export function classifyDevice(
 
   if (manufacturerId === MANUFACTURER_IDS.AMAZON) {
     // Most Amazon BLE = Ring devices or Echo. Conservative classification:
-    return { category: 'doorbell', confidence: 0.5 };
+    return { category: 'doorbell', confidence: 0.5, reason: 'company-id:0x0171' };
   }
 
   if (manufacturerId === MANUFACTURER_IDS.META_PLATFORMS) {
     // Covers all Meta-branded BLE products including phones, Quest, Ray-Ban glasses
-    return { category: 'wearable_high', confidence: 0.65 };
+    return { category: 'wearable_high', confidence: 0.65, reason: 'company-id:0x01AB' };
   }
 
   // 0x058E also covers Meta Quest VR headsets — accepting false-positive rate for v1;
   // differentiation via Fast Pair Model ID or Service UUID is a post-WD6 task.
   if (manufacturerId === MANUFACTURER_IDS.META_PLATFORMS_TECHNOLOGIES) {
     // Covers Quest VR primarily, Ray-Ban Meta secondary
-    return { category: 'wearable_high', confidence: 0.60 };
+    return { category: 'wearable_high', confidence: 0.60, reason: 'company-id:0x058E' };
   }
 
   if (manufacturerId === MANUFACTURER_IDS.ESSILORLUXOTTICA) {
     // Eyewear-primary manufacturer — highest glasses signal-to-noise
-    return { category: 'wearable_high', confidence: 0.80 };
+    return { category: 'wearable_high', confidence: 0.80, reason: 'company-id:0x0D53' };
   }
 
   if (manufacturerId === MANUFACTURER_IDS.SNAP) {
     // Spectacles plus Snap SDK presence
-    return { category: 'wearable_high', confidence: 0.65 };
+    return { category: 'wearable_high', confidence: 0.65, reason: 'company-id:0x03C2' };
   }
 
   if (manufacturerId === MANUFACTURER_IDS.GOOGLE) {
     // Could be Pixel, Nest doorbell, Chromecast — needs sub-classification
-    return { category: 'unknown', confidence: 0.3 };
+    return { category: 'unknown', confidence: 0.3, reason: 'company-id:0x00E0' };
   }
 
   if (manufacturerId === MANUFACTURER_IDS.TESLA) {
-    return { category: 'vehicle', confidence: 0.6 };
+    return { category: 'vehicle', confidence: 0.6, reason: 'company-id:0x05F1' };
   }
 
   if (manufacturerId === MANUFACTURER_IDS.SONOS) {
-    return { category: 'speaker_mic', confidence: 0.7 };
+    return { category: 'speaker_mic', confidence: 0.7, reason: 'company-id:0x0218' };
   }
 
-  // TODO: add unit tests for name-match branch — no test framework configured yet.
-  // Cover: "Ray-Ban Meta" → wearable_high/0.45/name-match:rayban, Company ID priority
-  // over name-match (0x01AB + "Ray-Ban Meta" → conf 0.65 not 0.45), case-insensitivity
-  // ("RAYBAN"/"rayban"/"RayBan" all match), non-matching names ("AirPods Pro" no-op),
-  // and "RB Meta-A1B2" → matches "rb meta". See task (b) spec for full matrix.
+  // TODO: add unit tests — no test framework configured yet. Full matrix to cover:
+  // Company ID branches: each MANUFACTURER_IDS key → correct category/confidence/reason
+  // Name-match: "Ray-Ban Meta" → wearable_high/0.45/name-match:rayban; Company ID
+  // priority (0x01AB + "Ray-Ban Meta" → conf 0.65/reason company-id:0x01AB, not 0.45);
+  // case-insensitivity ("RAYBAN"/"rayban"/"RayBan" all match); non-matching names
+  // ("AirPods Pro" no-op); "RB Meta-A1B2" → matches "rb meta".
   if (broadcastName) {
     const nameResult = classifyByName(broadcastName);
     if (nameResult) return nameResult;
   }
 
-  return { category: 'unknown', confidence: 0.1 };
+  return { category: 'unknown', confidence: 0.1, reason: 'fallthrough:none' };
 }
