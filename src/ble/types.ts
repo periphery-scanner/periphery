@@ -39,6 +39,13 @@ export interface DeviceObservation {
    * Undefined for non-Apple devices or messages without stable identifiable bytes.
    */
   continuityFingerprint?: string;
+  /**
+   * Present only when classification fell through to the name-match path.
+   * Format: "name-match:<pattern>" — e.g. "name-match:rayban".
+   * Undefined for Company-ID-based classifications.
+   * Used by the detection-reason disclosure UI (task c).
+   */
+  reason?: string;
 }
 
 export interface ScanWindow {

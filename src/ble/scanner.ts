@@ -85,17 +85,27 @@ export function stopScanning() {
 }
 
 function parseAdvertisement(device: Device): DeviceObservation | null {
-  if (!device.manufacturerData) return null;
+  // device.localName = GAP Complete/Shortened Local Name from the advertisement packet.
+  // Does NOT require BLUETOOTH_CONNECT permission. device.name/alias are excluded
+  // because they may be populated from the system cache via a prior bonded connection.
+  const broadcastName = device.localName ?? undefined;
 
-  // manufacturerData is base64-encoded
-  const bytes = base64ToBytes(device.manufacturerData);
-  if (bytes.length < 3) return null;
+  // Parse Company ID and payload from manufacturer data when present.
+  // When absent (e.g. bonded Ray-Bans suppress advertising), manufacturerId stays 0
+  // and payload stays empty — both fall through all Company ID branches to name-match.
+  let manufacturerId = 0;
+  let payload = new Uint8Array(0);
+  if (device.manufacturerData) {
+    const bytes = base64ToBytes(device.manufacturerData);
+    if (bytes.length >= 3) {
+      manufacturerId = bytes[0] | (bytes[1] << 8);
+      payload = bytes.slice(2);
+    }
+  } else if (!broadcastName) {
+    return null; // nothing to classify from
+  }
 
-  // First two bytes = Company ID, little-endian
-  const manufacturerId = bytes[0] | (bytes[1] << 8);
-  const payload = bytes.slice(2);
-
-  const { category, confidence } = classifyDevice(manufacturerId, payload);
+  const { category, confidence, reason } = classifyDevice(manufacturerId, payload, broadcastName);
   if (category === 'unknown') return null;
 
   const rssi = device.rssi ?? -100;
@@ -112,6 +122,7 @@ function parseAdvertisement(device: Device): DeviceObservation | null {
     lastSeenAt: now,
     confidence,
     continuityFingerprint,
+    reason,
   };
 }
 

@@ -156,12 +156,39 @@ export function extractContinuityFingerprint(
 }
 
 /**
+ * Broadcast name patterns for bonded-state Ray-Ban detection.
+ *
+ * When Ray-Ban Meta glasses are paired to a phone, RPA rotation and suppressed
+ * advertising remove Company IDs from advertisement packets. The GAP Local Name
+ * typically persists and is our only signal. Patterns ported from yj_nearbyglasses
+ * (Nearby Glasses project) plus "rb meta" from Meta Lab NYC / Best Buy field captures.
+ *
+ * Read from device.localName (advertisement packet, no BLUETOOTH_CONNECT needed).
+ * Do NOT use device.name / device.alias — those require CONNECT permission.
+ */
+const RAYBAN_NAME_PATTERNS = ['rayban', 'ray-ban', 'ray ban', 'rb meta'] as const;
+
+function classifyByName(
+  name: string
+): { category: DeviceCategory; confidence: number; reason: string } | null {
+  const lower = name.toLowerCase();
+  for (const pattern of RAYBAN_NAME_PATTERNS) {
+    if (lower.includes(pattern)) {
+      return { category: 'wearable_high', confidence: 0.45, reason: `name-match:${pattern}` };
+    }
+  }
+  return null;
+}
+
+/**
  * Top-level classifier. Routes by manufacturer ID, then delegates.
+ * broadcastName is optional — pass device.localName when available for name-match fallback.
  */
 export function classifyDevice(
   manufacturerId: number,
-  payload: Uint8Array
-): { category: DeviceCategory; confidence: number } {
+  payload: Uint8Array,
+  broadcastName?: string
+): { category: DeviceCategory; confidence: number; reason?: string } {
   if (manufacturerId === MANUFACTURER_IDS.APPLE && payload.length >= 1) {
     return classifyAppleDevice(payload[0], payload);
   }
@@ -207,6 +234,16 @@ export function classifyDevice(
 
   if (manufacturerId === MANUFACTURER_IDS.SONOS) {
     return { category: 'speaker_mic', confidence: 0.7 };
+  }
+
+  // TODO: add unit tests for name-match branch — no test framework configured yet.
+  // Cover: "Ray-Ban Meta" → wearable_high/0.45/name-match:rayban, Company ID priority
+  // over name-match (0x01AB + "Ray-Ban Meta" → conf 0.65 not 0.45), case-insensitivity
+  // ("RAYBAN"/"rayban"/"RayBan" all match), non-matching names ("AirPods Pro" no-op),
+  // and "RB Meta-A1B2" → matches "rb meta". See task (b) spec for full matrix.
+  if (broadcastName) {
+    const nameResult = classifyByName(broadcastName);
+    if (nameResult) return nameResult;
   }
 
   return { category: 'unknown', confidence: 0.1 };
