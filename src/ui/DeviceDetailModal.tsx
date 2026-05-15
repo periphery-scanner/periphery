@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { DeviceObservation, DeviceCategory } from '../ble/types';
 import { getManufacturerName } from '../ble/fingerprints';
+import { renderReason, getConfidenceTier } from './reasonRendering';
 
 const CATEGORY_LABELS: Record<DeviceCategory, string> = {
   phone:          'Phone',
@@ -103,6 +104,9 @@ export function DeviceDetailModal({ visible, observation, onClose }: Props) {
   const color = CATEGORY_COLORS[observation.category];
   const manufacturer = getManufacturerName(observation.manufacturerId);
   const shortId = observation.id.slice(0, 4) + '…';
+  const rendered = renderReason(observation.reason);
+  const tier = getConfidenceTier(observation.confidence);
+  const tierLabel = tier === 'high' ? 'High' : tier === 'medium' ? 'Medium' : 'Low';
 
   return (
     <Modal
@@ -149,6 +153,27 @@ export function DeviceDetailModal({ visible, observation, onClose }: Props) {
           <View style={styles.metaRow}>
             <Text style={styles.metaLabel}>ID</Text>
             <Text style={[styles.metaValue, styles.mono]}>{shortId}</Text>
+          </View>
+
+          {/* ── Why flagged ───────────────────────────────────────────── */}
+          <View style={styles.whySection}>
+            <Text style={styles.whySectionLabel}>Why flagged</Text>
+            <View style={styles.metaRow}>
+              <Text style={styles.metaLabel}>Signal</Text>
+              <Text
+                style={[styles.metaValue, styles.signalValue]}
+                numberOfLines={2}
+              >
+                {rendered.signal}
+              </Text>
+            </View>
+            <View style={[styles.metaRow, styles.metaRowLast]}>
+              <Text style={styles.metaLabel}>Tier</Text>
+              <Text style={styles.metaValue}>
+                {tierLabel}
+              </Text>
+            </View>
+            <Text style={styles.whyExplanation}>{rendered.explanation}</Text>
           </View>
         </View>
       </View>
@@ -241,5 +266,33 @@ const styles = StyleSheet.create({
   },
   mono: {
     fontFamily: Platform.OS === 'android' ? 'monospace' : 'Courier New',
+  },
+  whySection: {
+    marginTop: 8,
+  },
+  whySectionLabel: {
+    color: '#8b949e',
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    paddingTop: 16,
+    paddingBottom: 6,
+  },
+  signalValue: {
+    flex: 1,
+    textAlign: 'right',
+    paddingLeft: 12,
+    fontSize: 13,
+  },
+  metaRowLast: {
+    borderBottomWidth: 0,
+  },
+  whyExplanation: {
+    color: '#8b949e',
+    fontSize: 13,
+    lineHeight: 20,
+    paddingTop: 14,
+    paddingBottom: 8,
   },
 });
