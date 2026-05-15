@@ -8,21 +8,7 @@ import {
   View,
 } from 'react-native';
 import { DeviceObservation, DeviceCategory } from '../ble/types';
-
-const MANUFACTURER_NAMES: Partial<Record<number, string>> = {
-  0x004C: 'Apple',
-  0x00E0: 'Google',
-  0x0006: 'Microsoft',
-  0x0075: 'Samsung',
-  0x0171: 'Amazon',
-  0x0644: 'Meta',
-  0x0218: 'Sonos',
-  0x0067: 'Tile',
-  0x05F1: 'Tesla',
-  0x009E: 'Bose',
-  0x0087: 'Garmin',
-  0x0085: 'GoPro',
-};
+import { getManufacturerName } from '../ble/fingerprints';
 
 const CATEGORY_LABELS: Record<DeviceCategory, string> = {
   phone:          'Phone',
@@ -115,7 +101,7 @@ export function DeviceDetailModal({ visible, observation, onClose }: Props) {
   if (!observation) return null;
 
   const color = CATEGORY_COLORS[observation.category];
-  const manufacturer = MANUFACTURER_NAMES[observation.manufacturerId];
+  const manufacturer = getManufacturerName(observation.manufacturerId);
   const shortId = observation.id.slice(0, 4) + '…';
 
   return (
@@ -134,7 +120,7 @@ export function DeviceDetailModal({ visible, observation, onClose }: Props) {
             <Text style={[styles.categoryLabel, { color }]}>
               {CATEGORY_LABELS[observation.category]}
             </Text>
-            {manufacturer !== undefined && (
+            {!manufacturer.startsWith('Unknown') && (
               <Text style={styles.manufacturer}>{manufacturer}</Text>
             )}
           </View>

@@ -32,6 +32,43 @@ export const MANUFACTURER_IDS = {
   SNAP: 0x03C2,                        // Snap, Inc.
 } as const;
 
+/**
+ * Human-readable display names for Bluetooth SIG Company IDs.
+ * Keyed against MANUFACTURER_IDS constants — renaming a constant here propagates automatically.
+ * Consume via getManufacturerName(); do not index this map directly.
+ *
+ * Naming convention: existing entries preserved verbatim from prior UI usage.
+ * New wearable_high entries (task a) use full legal entity names.
+ */
+export const MANUFACTURER_DISPLAY_NAMES: Record<number, string> = {
+  [MANUFACTURER_IDS.APPLE]: 'Apple',
+  [MANUFACTURER_IDS.GOOGLE]: 'Google',
+  [MANUFACTURER_IDS.MICROSOFT]: 'Microsoft',
+  [MANUFACTURER_IDS.SAMSUNG]: 'Samsung',
+  [MANUFACTURER_IDS.AMAZON]: 'Amazon',
+  [MANUFACTURER_IDS.SONOS]: 'Sonos',
+  [MANUFACTURER_IDS.TILE]: 'Tile',
+  [MANUFACTURER_IDS.TESLA]: 'Tesla',
+  [MANUFACTURER_IDS.BOSE]: 'Bose',
+  [MANUFACTURER_IDS.GARMIN]: 'Garmin',
+  [MANUFACTURER_IDS.GOPRO]: 'GoPro',
+  [MANUFACTURER_IDS.META_PLATFORMS]: 'Meta Platforms, Inc.',
+  [MANUFACTURER_IDS.META_PLATFORMS_TECHNOLOGIES]: 'Meta Platforms Technologies, LLC',
+  [MANUFACTURER_IDS.ESSILORLUXOTTICA]: 'EssilorLuxottica S.A.',
+  [MANUFACTURER_IDS.SNAP]: 'Snap, Inc.',
+};
+
+/**
+ * Returns the display name for a Bluetooth SIG Company ID.
+ * Falls back to "Unknown (0x____)" for unmapped IDs.
+ * Never returns undefined or empty string.
+ */
+export function getManufacturerName(companyId: number): string {
+  const name = (MANUFACTURER_DISPLAY_NAMES as Partial<Record<number, string>>)[companyId];
+  if (name !== undefined) return name;
+  return `Unknown (0x${companyId.toString(16).toUpperCase().padStart(4, '0')})`;
+}
+
 /** Apple Continuity Protocol message types (byte after company ID) */
 export const APPLE_MESSAGE_TYPES = {
   IBEACON: 0x02,

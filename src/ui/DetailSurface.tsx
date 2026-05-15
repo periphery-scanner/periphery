@@ -17,26 +17,12 @@ import { ScoreHistorySample } from '../store/scanStore';
 import { DeviceObservation, DeviceCategory } from '../ble/types';
 import { TIER_COLORS } from './tiers';
 import { Sparkline } from './Sparkline';
+import { getManufacturerName } from '../ble/fingerprints';
 
 // LayoutAnimation requires this flag on pre-new-arch Android builds
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
-
-const MANUFACTURER_NAMES: Partial<Record<number, string>> = {
-  0x004C: 'Apple',
-  0x00E0: 'Google',
-  0x0006: 'Microsoft',
-  0x0075: 'Samsung',
-  0x0171: 'Amazon',
-  0x0644: 'Meta',
-  0x0218: 'Sonos',
-  0x0067: 'Tile',
-  0x05F1: 'Tesla',
-  0x009E: 'Bose',
-  0x0087: 'Garmin',
-  0x0085: 'GoPro',
-};
 
 const CATEGORY_LABELS: Record<DeviceCategory, string> = {
   phone:         'Phones',
@@ -184,10 +170,10 @@ export function DetailSurface({
                   Camera wearables detected
                 </Text>
                 {wearableObservations.map((obs) => {
-                  const manufacturer = MANUFACTURER_NAMES[obs.manufacturerId];
+                  const manufacturer = getManufacturerName(obs.manufacturerId);
                   return (
                     <View key={obs.id} style={styles.wearableCard}>
-                      {manufacturer !== undefined && (
+                      {!manufacturer.startsWith('Unknown') && (
                         <Text style={styles.wearableManufacturer}>
                           {manufacturer}
                         </Text>
