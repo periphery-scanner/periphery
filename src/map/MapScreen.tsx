@@ -570,6 +570,7 @@ export function MapScreen({ permissionsGranted, onMapReady }: Props) {
         wearableObservations={wearableObservations}
         onClose={() => setDetailOpen(false)}
         onOpenMethodology={() => setWhyClassifiedOpen(true)}
+        onDevicePress={(obs) => { setDetailOpen(false); setSelectedDevice(obs); }}
       />
 
       <DeviceDetailModal

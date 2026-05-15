@@ -9,6 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   UIManager,
   View,
 } from 'react-native';
@@ -93,6 +94,7 @@ interface Props {
   wearableObservations: DeviceObservation[];
   onClose: () => void;
   onOpenMethodology: () => void;
+  onDevicePress: (obs: DeviceObservation) => void;
 }
 
 export function DetailSurface({
@@ -102,6 +104,7 @@ export function DetailSurface({
   wearableObservations,
   onClose,
   onOpenMethodology,
+  onDevicePress,
 }: Props) {
   const [methodologyExpanded, setMethodologyExpanded] = useState(false);
   const translateY = useRef(new Animated.Value(0)).current;
@@ -172,31 +175,41 @@ export function DetailSurface({
                 {wearableObservations.map((obs) => {
                   const manufacturer = getManufacturerName(obs.manufacturerId);
                   return (
-                    <View key={obs.id} style={styles.wearableCard}>
-                      {!manufacturer.startsWith('Unknown') && (
-                        <Text style={styles.wearableManufacturer}>
-                          {manufacturer}
-                        </Text>
-                      )}
-                      <Text style={styles.wearableId}>
-                        ID {obs.id.slice(0, 4)}…
-                      </Text>
-                      <View style={styles.wearableStats}>
-                        <SignalBars rssi={obs.rssi} />
-                        <Text style={styles.statText}>{obs.rssi} dBm</Text>
-                        <Text style={styles.statSep}> · </Text>
-                        <Text style={styles.statText}>
-                          {formatDistance(obs.estimatedDistanceM)}
-                        </Text>
-                        <Text style={styles.statSep}> · </Text>
-                        <Text style={styles.statText}>
-                          {formatAge(obs.lastSeenAt)}
-                        </Text>
+                    <TouchableOpacity
+                      key={obs.id}
+                      style={styles.wearableCard}
+                      onPress={() => onDevicePress(obs)}
+                      activeOpacity={0.75}
+                    >
+                      <View style={styles.wearableCardRow}>
+                        <View style={styles.wearableCardContent}>
+                          {!manufacturer.startsWith('Unknown') && (
+                            <Text style={styles.wearableManufacturer}>
+                              {manufacturer}
+                            </Text>
+                          )}
+                          <Text style={styles.wearableId}>
+                            ID {obs.id.slice(0, 4)}…
+                          </Text>
+                          <View style={styles.wearableStats}>
+                            <SignalBars rssi={obs.rssi} />
+                            <Text style={styles.statText}>{obs.rssi} dBm</Text>
+                            <Text style={styles.statSep}> · </Text>
+                            <Text style={styles.statText}>
+                              {formatDistance(obs.estimatedDistanceM)}
+                            </Text>
+                            <Text style={styles.statSep}> · </Text>
+                            <Text style={styles.statText}>
+                              {formatAge(obs.lastSeenAt)}
+                            </Text>
+                          </View>
+                          <Text style={styles.wearableConfidence}>
+                            Confidence: {Math.round(obs.confidence * 100)}%
+                          </Text>
+                        </View>
+                        <Text style={styles.wearableChevron}>›</Text>
                       </View>
-                      <Text style={styles.wearableConfidence}>
-                        Confidence: {Math.round(obs.confidence * 100)}%
-                      </Text>
-                    </View>
+                    </TouchableOpacity>
                   );
                 })}
                 <View style={styles.divider} />
@@ -339,6 +352,18 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(217, 119, 87, 0.25)',
+  },
+  wearableCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  wearableCardContent: {
+    flex: 1,
+  },
+  wearableChevron: {
+    color: '#6a7480',
+    fontSize: 18,
+    marginLeft: 10,
   },
   wearableManufacturer: {
     color: '#D97757',
